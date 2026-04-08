@@ -1,146 +1,155 @@
-// Version 4.1
 
 import java.util.*;
-
-// =======================
-// DOMAIN MODEL
-// =======================
-abstract class Room {
+class BookingRequest {
+    private String guestName;
     private String roomType;
-    private int beds;
-    private double price;
 
-    public Room(String roomType, int beds, double price) {
+    public BookingRequest(String guestName, String roomType) {
+        this.guestName = guestName;
         this.roomType = roomType;
-        this.beds = beds;
-        this.price = price;
+    }
+
+    public String getGuestName() {
+        return guestName;
     }
 
     public String getRoomType() {
         return roomType;
     }
-
-    public int getBeds() {
-        return beds;
-    }
-
-    public double getPrice() {
-        return price;
-    }
-
-    public abstract void displayDetails();
-}
-
-class SingleRoom extends Room {
-    public SingleRoom() {
-        super("Single Room", 1, 2000);
-    }
-
-    public void displayDetails() {
-        System.out.println("Room: " + getRoomType());
-        System.out.println("Beds: " + getBeds());
-        System.out.println("Price: ₹" + getPrice());
-    }
-}
-
-class DoubleRoom extends Room {
-    public DoubleRoom() {
-        super("Double Room", 2, 3500);
-    }
-
-    public void displayDetails() {
-        System.out.println("Room: " + getRoomType());
-        System.out.println("Beds: " + getBeds());
-        System.out.println("Price: ₹" + getPrice());
-    }
-}
-
-class SuiteRoom extends Room {
-    public SuiteRoom() {
-        super("Suite Room", 3, 6000);
-    }
-
-    public void displayDetails() {
-        System.out.println("Room: " + getRoomType());
-        System.out.println("Beds: " + getBeds());
-        System.out.println("Price: ₹" + getPrice());
-    }
 }
 
 // =======================
-// INVENTORY (READ-ONLY USAGE HERE)
+// INVENTORY SERVICE
 // =======================
 class RoomInventory {
 
-    private Map<String, Integer> inventory;
+    private Map<String, Integer> inventory = new HashMap<>();
 
     public RoomInventory() {
-        inventory = new HashMap<>();
-        inventory.put("Single Room", 5);
-        inventory.put("Double Room", 0); // test filtering
-        inventory.put("Suite Room", 2);
+        inventory.put("Single Room", 2);
+        inventory.put("Double Room", 1);
+        inventory.put("Suite Room", 1);
     }
 
     public int getAvailability(String roomType) {
         return inventory.getOrDefault(roomType, 0);
     }
 
-    // IMPORTANT: No update methods used in search use case
+    public void decrement(String roomType) {
+        int current = getAvailability(roomType);
+        if (current > 0) {
+            inventory.put(roomType, current - 1);
+        }
+    }
+
+    public void displayInventory() {
+        System.out.println("Current Inventory: " + inventory);
+    }
 }
 
 // =======================
-// SEARCH SERVICE
+// BOOKING SERVICE
 // =======================
-class RoomSearchService {
+class BookingService {
 
-    public void search(RoomInventory inventory, List<Room> rooms) {
+    private Queue<BookingRequest> requestQueue = new LinkedList<>();
 
-        System.out.println("===== AVAILABLE ROOMS =====\n");
+    // Tracks allocated room IDs per type
+    private Map<String, Set<String>> allocatedRooms = new HashMap<>();
 
-        boolean found = false;
+    // Global set to ensure uniqueness
+    private Set<String> allAllocatedRoomIds = new HashSet<>();
 
-        for (Room room : rooms) {
-            int available = inventory.getAvailability(room.getRoomType());
+    // Add request to queue
+    public void addRequest(BookingRequest request) {
+        requestQueue.offer(request);
+    }
 
-            // Validation: only show available rooms
-            if (available > 0) {
-                room.displayDetails();
-                System.out.println("Available: " + available);
-                System.out.println();
-                found = true;
+    // Process bookings in FIFO
+    public void processBookings(RoomInventory inventory) {
+
+        System.out.println("===== PROCESSING BOOKINGS =====\n");
+
+        while (!requestQueue.isEmpty()) {
+
+            BookingRequest request = requestQueue.poll();
+            String roomType = request.getRoomType();
+
+            System.out.println("Processing request for: " + request.getGuestName());
+
+            // Check availability
+            if (inventory.getAvailability(roomType) > 0) {
+
+                // Generate unique room ID
+                String roomId = generateRoomId(roomType);
+
+                // Ensure uniqueness (extra safety)
+                while (allAllocatedRoomIds.contains(roomId)) {
+                    roomId = generateRoomId(roomType);
+                }
+
+                // Store globally
+                allAllocatedRoomIds.add(roomId);
+
+                // Store per room type
+                allocatedRooms
+                        .computeIfAbsent(roomType, k -> new HashSet<>())
+                        .add(roomId);
+
+                // Update inventory immediately
+                inventory.decrement(roomType);
+
+                // Confirm booking
+                System.out.println("Booking CONFIRMED for " + request.getGuestName());
+                System.out.println("Room Type: " + roomType);
+                System.out.println("Allocated Room ID: " + roomId + "\n");
+
+            } else {
+                System.out.println("Booking FAILED for " + request.getGuestName()
+                        + " (No rooms available)\n");
             }
         }
 
-        // Defensive: handle no results case
-        if (!found) {
-            System.out.println("No rooms available at the moment.");
-        }
+        System.out.println("===== BOOKING COMPLETE =====\n");
+    }
 
-        System.out.println("===== END =====");
+    // Room ID generator
+    private String generateRoomId(String roomType) {
+        return roomType.replace(" ", "").substring(0, 2).toUpperCase()
+                + "-" + UUID.randomUUID().toString().substring(0, 5);
+    }
+
+    // Display allocations
+    public void displayAllocations() {
+        System.out.println("===== ROOM ALLOCATIONS =====");
+        for (Map.Entry<String, Set<String>> entry : allocatedRooms.entrySet()) {
+            System.out.println(entry.getKey() + " -> " + entry.getValue());
+        }
     }
 }
 
 // =======================
 // MAIN CLASS
 // =======================
-public class UseCase4RoomSearch {
+public class UseCase6RoomAllocationService {
 
     public static void main(String[] args) {
 
-        // Room domain objects
-        List<Room> rooms = Arrays.asList(
-                new SingleRoom(),
-                new DoubleRoom(),
-                new SuiteRoom()
-        );
-
-
+        // Initialize services
         RoomInventory inventory = new RoomInventory();
+        BookingService bookingService = new BookingService();
 
-        // Search service (read-only)
-        RoomSearchService searchService = new RoomSearchService();
+        // Add booking requests (FIFO queue)
+        bookingService.addRequest(new BookingRequest("Alice", "Single Room"));
+        bookingService.addRequest(new BookingRequest("Bob", "Single Room"));
+        bookingService.addRequest(new BookingRequest("Charlie", "Single Room")); // should fail
+        bookingService.addRequest(new BookingRequest("David", "Suite Room"));
 
-        // Perform search
-        searchService.search(inventory, rooms);
+        // Process bookings
+        bookingService.processBookings(inventory);
+
+        // Show final state
+        bookingService.displayAllocations();
+        inventory.displayInventory();
     }
 }
